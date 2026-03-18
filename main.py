@@ -1,84 +1,74 @@
-﻿import asyncio
-import requests
-from aiogram import Bot, Dispatcher
-from aiogram.types import Message
-from aiogram.enums import ChatAction
+import asyncio
+import aiohttp
 import os
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import Message
 
-TOKEN = os.getenv("8761314650:AAH3nnM5auKtGod8KS1Asv2Kotx-qUOwTbQ")
-TOGETHER_API_KEY = os.getenv("key_CZAeBCn6UyinngcrFKCav")
+TOKEN = os.getenv("BOT_TOKEN")
+TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# ⚡️ ПАМЯТЬ В RAM (СУПЕР БЫСТРО)
+# ⚡ ПАМЯТЬ
 memory = {}
+MAX_HISTORY = 5
 
-MAX_HISTORY = 4  # минимум = максимум скорости
+# ⚡ AI запрос (БЫСТРЫЙ)
+async def ask_ai(messages):
+    url = "https://api.together.xyz/v1/chat/completions"
 
-# ⚡️ AI
-def ask_ai(messages):
-    try:
-        response = requests.post(
-            "https://api.together.xyz/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {TOGETHER_API_KEY}",
-                "Content-Type": "application/json"
-            },
-            json={
-                # ⚡️ БЫСТРАЯ МОДЕЛЬ
-                "model": "mistralai/Mistral-7B-Instruct-v0.1",
-                "messages": messages,
-                "max_tokens": 150,   # меньше = быстрее
-                "temperature": 0.6
-            },
-            timeout=6  # ⚡️ очень быстрый таймаут
-        )
+    headers = {
+        "Authorization": f"Bearer {TOGETHER_API_KEY}",
+        "Content-Type": "application/json"
+    }
 
-        data = response.json()
-        return data["choices"][0]["message"]["content"]
+    data = {
+        "model": "mistralai/Mistral-7B-Instruct-v0.2",
+        "messages": messages,
+        "temperature": 0.7,
+        "max_tokens": 500
+    }
 
-    except:
-        return "⚠️ Ошибка, попробуй ещё раз"
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, headers=headers, json=data) as resp:
+            result = await resp.json()
+            return result["choices"][0]["message"]["content"]
 
-# ⚡️ ЧАТ
+# 🧹 Очистка памяти
+@dp.message(F.text == "/clear")
+async def clear(message: Message):
+    memory[message.chat.id] = []
+    await message.answer("🧹 Память очищена!")
+
+# 🤖 Основной чат
 @dp.message()
 async def chat(message: Message):
-    user_id = message.from_user.id
+    user_id = message.chat.id
 
-    # создаём память
     if user_id not in memory:
         memory[user_id] = []
 
-    # добавляем сообщение
-    memory[user_id].append({
-        "role": "user",
-        "content": message.text[:300]  # обрезаем
-    })
-
-    # ограничиваем память
+    memory[user_id].append({"role": "user", "content": message.text})
     memory[user_id] = memory[user_id][-MAX_HISTORY:]
 
-    # ⚡️ моментальный typing
-    await bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+    try:
+        await bot.send_chat_action(message.chat.id, "typing")
 
-    # ⚡️ быстрый запрос
-    reply = ask_ai([
-        {"role": "system", "content": "Отвечай коротко и быстро на русском"}
-    ] + memory[user_id])
+        reply = await ask_ai(memory[user_id])
 
-    # сохраняем ответ
-    memory[user_id].append({
-        "role": "assistant",
-        "content": reply
-    })
+        memory[user_id].append({"role": "assistant", "content": reply})
 
-    await message.answer(reply)
+        await message.answer(reply)
 
-# 🚀 запуск
+    except Exception as e:
+        await message.answer("❌ Ошибка, попробуй позже")
+        print(e)
+
+# 🚀 ЗАПУСК
 async def main():
-    print("ULTRA FAST BOT ⚡️ запущен")
+    print("⚡ ULTRA FAST BOT запущен")
     await dp.start_polling(bot)
 
-if name == "main":
+if name == "__main__":
     asyncio.run(main())
